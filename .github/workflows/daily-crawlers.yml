@@ -2,7 +2,8 @@ name: Daily personnel crawler
 
 on:
   schedule:
-    - cron: "0 1 * * 1-5"
+    # KST 평일(월~금) 오전 9:45 실행 (UTC 00:45)
+    - cron: "45 0 * * 1-5"
   workflow_dispatch:
 
 permissions:
