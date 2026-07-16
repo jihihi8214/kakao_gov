@@ -4,9 +4,16 @@ import json
 import os
 import time
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import urllib3
 import google.generativeai as genai
+
+try:
+    from zoneinfo import ZoneInfo
+    KST = ZoneInfo("Asia/Seoul")
+except Exception:
+    # zoneinfo 데이터가 없는 환경 대비 고정 오프셋으로 대체
+    KST = timezone(timedelta(hours=9))
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -91,17 +98,18 @@ DATA_DIR = os.path.join(BASE_DIR, "data_personnel")
 # ==========================================
 def get_search_dates(now: datetime):
     """
-    평일에만 실행하는 것을 전제로 한 날짜 범위 계산.
-    - 월요일: 지난 금요일 00:00 ~ 오늘 23:59 (주말치까지 포함)
-    - 화~금요일: 오늘 00:00 ~ 오늘 23:59 (당일 하루만)
+    평일에만 실행하는 것을 전제로, "직전 실행 시각(오전 9:45) 직후 ~ 이번 실행 시각"을
+    검색 범위로 잡는다 (자정 기준이 아니라 실행 시각 기준).
+    - 화~금요일: 전날 09:46 ~ 오늘 실행 시각(now)
+    - 월요일: 지난 금요일 09:46 ~ 오늘(월요일) 실행 시각(now)
     """
-    end_date = now.replace(hour=23, minute=59, second=59)
-    if now.weekday() == 0:  # 월요일
-        start_date = (now - timedelta(days=3)).replace(hour=0, minute=0, second=0)
-        period_label = f"{start_date.strftime('%m.%d')} ~ {now.strftime('%m.%d')}"
-    else:  # 화~금요일
-        start_date = now.replace(hour=0, minute=0, second=0)
-        period_label = now.strftime('%m.%d')
+    end_date = now
+    if now.weekday() == 0:  # 월요일 -> 지난 금요일 기준
+        prev_business_day = now - timedelta(days=3)
+    else:  # 화~금요일 -> 전날 기준
+        prev_business_day = now - timedelta(days=1)
+    start_date = prev_business_day.replace(hour=9, minute=46, second=0, microsecond=0)
+    period_label = f"{start_date.strftime('%m.%d %H:%M')} ~ {end_date.strftime('%m.%d %H:%M')}"
     return start_date, end_date, period_label
 
 # ==========================================
@@ -109,19 +117,21 @@ def get_search_dates(now: datetime):
 # ==========================================
 def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_info):
     # 가운데 점(·)이 있는 부처는 쪼개서 'OR(|)' 조건으로 검색
+    # 참고: 큰따옴표로 감싼 정확 문구 검색은 네이버 API에서 실제 존재하는 기사도
+    # 누락시키는 경우가 있어 사용하지 않는다 (다음뉴스 테스트에서도 따옴표 없이 잘 잡혔음).
     if '·' in agency:
         parts = agency.split('·')  # ['국무조정실', '국무총리비서실']
         if keyword == "인사":
-            search_query = f'"[{keyword}] {parts[0]}" | "[{keyword}] {parts[1]}"'
+            search_query = f"[{keyword}] {parts[0]} | [{keyword}] {parts[1]}"
         else:
             search_query = f"{keyword} {parts[0]} | {keyword} {parts[1]}"
     else:
         if keyword == "인사":
-            search_query = f'"[{keyword}] {agency}"'
+            search_query = f"[{keyword}] {agency}"
         else:
             search_query = f"{keyword} {agency}"
 
-    url = f"https://openapi.naver.com/v1/search/news.json?query={search_query}&display=5&sort=date"
+    url = f"https://openapi.naver.com/v1/search/news.json?query={search_query}&display=20&sort=date"
 
     headers = {
         "X-Naver-Client-Id": NAVER_CLIENT_ID,
@@ -143,7 +153,9 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
         for item in data.get('items', []):
             pub_date_str = item['pubDate']
             try:
-                pub_date_obj = datetime.strptime(pub_date_str[:-6], "%a, %d %b %Y %H:%M:%S")
+                # 네이버가 주는 시간대 정보(예: +0900)를 버리지 않고 그대로 파싱해서
+                # KST 기준 start_date/end_date와 시간대 어긋남 없이 비교한다.
+                pub_date_obj = datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %z")
             except Exception:
                 continue
 
@@ -267,7 +279,7 @@ def push_to_github(file_name):
         print(f"✨ 변경된 내역이 없거나 배달을 건너뜁니다: {e}")
 
 def main():
-    now = datetime.now()
+    now = datetime.now(KST)
     start_date, end_date, period_label = get_search_dates(now)
     date_key = now.strftime("%Y-%m-%d")
 
