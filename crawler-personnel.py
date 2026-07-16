@@ -162,17 +162,11 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
             if start_date <= pub_date_obj <= end_date:
                 title = BeautifulSoup(item['title'], "html.parser").get_text()
 
-                # 대괄호/화살괄호/기호 표기 + 구두점 없는 "기관명 인사"/"인사 기관명" 형태까지 폭넓게 인정
-                bracket_match = (
-                    f"[{keyword}]" in title or f"<{keyword}>" in title
-                    or f"◆ {keyword}" in title or f"■ {keyword}" in title
-                    or (keyword == "부고" and "[부음]" in title)
-                )
-                plain_match = keyword in title and any(p in title for p in ([agency] if '·' not in agency else agency.split('·')))
-                # "인사하는", "인사말", "인사를 나누" 등 동사·인사말 용법은 제외
-                verb_like = any(v in title for v in ["인사하는", "인사말", "인사를 나누", "인사 나누"])
+                # 단순 기준: 제목에 기관명과 키워드(인사/부고)가 함께 들어있는 기사만 채택
+                agency_names_to_check = agency.split('·') if '·' in agency else [agency]
+                matched = keyword in title and any(name in title for name in agency_names_to_check)
 
-                if (bracket_match or plain_match) and not verb_like:
+                if matched:
                     naver_link = item.get('link', '')
                     article_body = ""
 
