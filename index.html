@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>정부기관 인사·부고 브리핑</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: #fafafa;
+    color: #1f2937;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 4px 0;
+    color: #111827;
+  }
+  .sub {
+    font-size: 13px;
+    color: #6b7280;
+    margin: 0 0 20px 0;
+  }
+  .section {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 12px 0;
+    color: #111827;
+  }
+  .agency-block { margin-bottom: 16px; }
+  .agency-block:last-child { margin-bottom: 0; }
+  .agency-name {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: #374151;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+  .rank {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #2563eb;
+    margin: 8px 0 4px 0;
+  }
+  .item {
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: #1f2937;
+    margin: 0 0 3px 0;
+    padding-left: 10px;
+    position: relative;
+  }
+  .item::before {
+    content: "·";
+    position: absolute;
+    left: 0;
+  }
+  .empty-msg {
+    font-size: 13.5px;
+    color: #6b7280;
+  }
+  .placeholder {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 13.5px;
+    padding: 40px 0;
+  }
+  .refresh-note {
+    font-size: 12px;
+    color: #9ca3af;
+    text-align: center;
+    margin-top: 24px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>정부기관 인사·부고 브리핑</h1>
+  <p class="sub" id="subLine">과기정통부·행안부 등 10개 기관 자동 수집 결과 · 불러오는 중...</p>
+  <div id="resultBox">
+    <div class="placeholder">데이터를 불러오는 중입니다...</div>
+  </div>
+  <p class="refresh-note">매일 평일 오전 10시(KST) 자동 갱신됩니다.</p>
+</div>
+
+<script>
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function renderAgencyEntries(text) {
+  // 인사 텍스트: "◇ 국장급 승진\n- 정책기획관 홍길동" 형태
+  // 부고 텍스트: 자유 형식 문장
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  let html = "";
+  let hasRank = lines.some(l => l.startsWith("◇"));
+  if (hasRank) {
+    for (const line of lines) {
+      if (line.startsWith("◇")) {
+        html += `<div class="rank">◇ ${escapeHtml(line.replace(/^◇\s*/, ""))}</div>`;
+      } else if (line.startsWith("-")) {
+        html += `<div class="item">${escapeHtml(line.replace(/^-\s*/, ""))}</div>`;
+      } else {
+        html += `<div class="item">${escapeHtml(line)}</div>`;
+      }
+    }
+  } else {
+    for (const line of lines) {
+      html += `<div class="item">${escapeHtml(line.replace(/^[-▲■◆△]\s*/, ""))}</div>`;
+    }
+  }
+  return html;
+}
+
+function renderSection(title, dataDict) {
+  const agencies = Object.keys(dataDict || {}).filter(a => dataDict[a] && dataDict[a] !== "해당 없음");
+  let html = `<div class="section"><div class="section-title">${escapeHtml(title)}</div>`;
+  if (agencies.length === 0) {
+    html += `<div class="empty-msg">해당 소식이 없습니다.</div>`;
+  } else {
+    for (const agency of agencies) {
+      html += `<div class="agency-block"><div class="agency-name">${escapeHtml(agency)}</div><br/>`;
+      html += renderAgencyEntries(dataDict[agency]);
+      html += `</div>`;
+    }
+  }
+  html += `</div>`;
+  return html;
+}
+
+function toKstDateString(offsetDays) {
+  const now = new Date();
+  // KST = UTC+9
+  const kstNow = new Date(now.getTime() + (9 * 60 - now.getTimezoneOffset()) * 60000);
+  kstNow.setDate(kstNow.getDate() - offsetDays);
+  const y = kstNow.getFullYear();
+  const m = String(kstNow.getMonth() + 1).padStart(2, "0");
+  const d = String(kstNow.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+async function loadData() {
+  const resultBox = document.getElementById("resultBox");
+  const subLine = document.getElementById("subLine");
+
+  for (let offset = 0; offset <= 6; offset++) {
+    const dateStr = toKstDateString(offset);
+    try {
+      const res = await fetch(`data_personnel/${dateStr}.json?_=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      subLine.textContent = `과기정통부·행안부 등 10개 기관 자동 수집 결과 · 기준일: ${data.date} (${data.period})`;
+
+      let html = "";
+      html += renderSection("☑ 인사", data["인사"]);
+      html += renderSection("☑️ 부고", data["부고"]);
+      resultBox.innerHTML = html;
+      return;
+    } catch (e) {
+      continue;
+    }
+  }
+
+  subLine.textContent = "과기정통부·행안부 등 10개 기관 자동 수집 결과";
+  resultBox.innerHTML = '<div class="placeholder">아직 수집된 데이터가 없습니다. 첫 자동 실행을 기다려주세요.</div>';
+}
+
+loadData();
+</script>
+</body>
+</html>
