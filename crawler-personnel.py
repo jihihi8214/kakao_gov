@@ -19,26 +19,52 @@ try:
     with open(os.path.join(BASE_DIR, "secret.txt"), "r") as f:
         GOOGLE_API_KEY = f.read().strip()
     genai.configure(api_key=GOOGLE_API_KEY)
-
-    # 특정 모델명을 하드코딩하면 나중에 그 모델이 만료/제한될 때 전체가 멈추므로,
-    # 이 API 키로 실제 사용 가능한 flash 계열 모델을 자동으로 찾아서 쓴다.
-    candidates = []
-    for m in genai.list_models():
-        methods = getattr(m, "supported_generation_methods", [])
-        if "generateContent" in methods:
-            candidates.append(m.name)
-
-    flash_candidates = [c for c in candidates if "flash" in c.lower()]
-    chosen_model = flash_candidates[0] if flash_candidates else (candidates[0] if candidates else None)
-
-    if not chosen_model:
-        raise RuntimeError("사용 가능한 Gemini 모델을 찾을 수 없습니다.")
-
-    model = genai.GenerativeModel(chosen_model)
-    print(f"✅ 사용할 Gemini 모델: {chosen_model}")
 except Exception as e:
-    print(f"❌ secret.txt 파일이 없거나 구글 API 키/모델 초기화에 실패했습니다: {e}")
+    print(f"❌ secret.txt 파일이 없거나 구글 API 키를 읽을 수 없습니다: {e}")
     exit()
+
+# ==========================================
+# 1-1. Gemini 모델 자동 선택 (fallback 포함)
+# ==========================================
+# list_models()에 뜨는 모델이라도 실제로 이 API 키로는 호출이 막혀있는 경우가 있어서
+# (예: "gemini-2.5-flash is no longer available to new users"),
+# 목록만 믿지 않고 실제로 호출해보고 실패하면 다음 후보로 자동 전환한다.
+_MODEL_STATE = {"working_name": None, "candidates": None}
+
+def _get_model_candidates():
+    if _MODEL_STATE["candidates"] is None:
+        names = []
+        try:
+            for m in genai.list_models():
+                methods = getattr(m, "supported_generation_methods", [])
+                if "generateContent" in methods and "flash" in m.name.lower():
+                    names.append(m.name)
+        except Exception as e:
+            print(f"❌ 모델 목록 조회 실패: {e}")
+        # 신규 키에서 자주 막히는 정확히 'gemini-2.5-flash'인 이름은 뒤로 미루고 나머지부터 시도
+        names.sort(key=lambda n: n.rstrip("/").endswith("gemini-2.5-flash"))
+        _MODEL_STATE["candidates"] = names
+    return _MODEL_STATE["candidates"]
+
+def generate_with_fallback(prompt):
+    if _MODEL_STATE["working_name"]:
+        try:
+            return genai.GenerativeModel(_MODEL_STATE["working_name"]).generate_content(prompt)
+        except Exception:
+            _MODEL_STATE["working_name"] = None  # 캐시된 모델도 막히면 다시 탐색
+
+    for name in list(_get_model_candidates()):
+        try:
+            resp = genai.GenerativeModel(name).generate_content(prompt)
+            if _MODEL_STATE["working_name"] != name:
+                print(f"✅ 사용할 Gemini 모델: {name}")
+            _MODEL_STATE["working_name"] = name
+            return resp
+        except Exception as e:
+            print(f"   (모델 {name} 사용 불가: {e})")
+            continue
+
+    raise RuntimeError("사용 가능한 Gemini 모델을 찾지 못했습니다.")
 
 try:
     with open(os.path.join(BASE_DIR, "secret_naver.txt"), "r") as f:
@@ -192,7 +218,7 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
         {combined_text}
         """
 
-        response = model.generate_content(prompt)
+        response = generate_with_fallback(prompt)
         result = response.text.strip()
 
         result = result.replace("[출력 형식 예시 - 인사]", "").replace("[출력 형식 예시 - 부고]", "").strip()
