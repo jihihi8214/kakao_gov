@@ -19,9 +19,25 @@ try:
     with open(os.path.join(BASE_DIR, "secret.txt"), "r") as f:
         GOOGLE_API_KEY = f.read().strip()
     genai.configure(api_key=GOOGLE_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+
+    # 특정 모델명을 하드코딩하면 나중에 그 모델이 만료/제한될 때 전체가 멈추므로,
+    # 이 API 키로 실제 사용 가능한 flash 계열 모델을 자동으로 찾아서 쓴다.
+    candidates = []
+    for m in genai.list_models():
+        methods = getattr(m, "supported_generation_methods", [])
+        if "generateContent" in methods:
+            candidates.append(m.name)
+
+    flash_candidates = [c for c in candidates if "flash" in c.lower()]
+    chosen_model = flash_candidates[0] if flash_candidates else (candidates[0] if candidates else None)
+
+    if not chosen_model:
+        raise RuntimeError("사용 가능한 Gemini 모델을 찾을 수 없습니다.")
+
+    model = genai.GenerativeModel(chosen_model)
+    print(f"✅ 사용할 Gemini 모델: {chosen_model}")
 except Exception as e:
-    print("❌ secret.txt 파일이 없거나 구글 API 키를 읽을 수 없습니다.")
+    print(f"❌ secret.txt 파일이 없거나 구글 API 키/모델 초기화에 실패했습니다: {e}")
     exit()
 
 try:
