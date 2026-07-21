@@ -113,7 +113,7 @@ def get_search_dates(now: datetime):
     return start_date, end_date, period_label
 
 # ==========================================
-# 3-1. 인사 결과 2차 안전장치 (AI가 형식/파견제외 지시를 놓쳤을 때 대비)
+# 3-1. 인사 결과 2차 안전장치 (AI가 기호 형식 지시를 놓쳤을 때 대비)
 # ==========================================
 def clean_personnel_format(result: str) -> str:
     if not result:
@@ -131,28 +131,7 @@ def clean_personnel_format(result: str) -> str:
             ln = "-" + ln[1:]
         normalized.append(ln.strip())
 
-    # "파견"이 들어간 개별 항목(이름 줄)은 통째로 제거
-    filtered = [ln for ln in normalized if not (ln.startswith("-") and "파견" in ln)]
-
-    # 항목이 하나도 안 남은 "◇ 구분" 헤더는 같이 제거
-    final = []
-    i = 0
-    while i < len(filtered):
-        ln = filtered[i]
-        if ln.startswith("◇"):
-            j = i + 1
-            has_item = False
-            while j < len(filtered) and not filtered[j].startswith("◇"):
-                if filtered[j].startswith("-"):
-                    has_item = True
-                j += 1
-            if has_item:
-                final.append(ln)
-        else:
-            final.append(ln)
-        i += 1
-
-    return "\n".join(final).strip()
+    return "\n".join(normalized).strip()
 
 # ==========================================
 # 4. 네이버 뉴스 API 검색 및 기사 본문 싹쓸이 + AI 요약
@@ -238,9 +217,6 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
         prompt = f"""
         다음은 네이버 뉴스에서 '{agency}'의 '{keyword}'와 관련된 기사 본문 모음이야.
         이 내용 중에서 실제 인사 이동(승진/전보/임용 등 정식 발령)이나 부고 내역을 추출해서 아래 형식으로만 대답해줘.
-
-        [주의: 파견 제외] "파견"(다른 기관으로 보내지거나 다른 기관에서 온 파견 근무)은 정식 인사 발령이 아니므로 결과에서 제외해. 승진/전보/임용/전출/전입처럼 해당 기관 소속으로 정식 발령난 내용만 채택해.
-        여러 명이 한 목록에 섞여 있어도 "파견"이라는 단어가 들어간 사람만 개별적으로 골라서 빼고, 나머지 정식 발령자는 그대로 남겨.
 
         [주의: 인사 형식 강제] 원문 기사가 이미 ▲, ■, ◆ 같은 기호로 목록을 나열하고 있어도 그 기호를 그대로 베끼지 마. 반드시 아래 [출력 형식 예시 - 인사]에 나온 "◇"(구분)와 "-"(이름) 기호로만 다시 써야 해. 원문의 다른 기호는 전부 버려.
 
