@@ -113,6 +113,48 @@ def get_search_dates(now: datetime):
     return start_date, end_date, period_label
 
 # ==========================================
+# 3-1. 인사 결과 2차 안전장치 (AI가 형식/파견제외 지시를 놓쳤을 때 대비)
+# ==========================================
+def clean_personnel_format(result: str) -> str:
+    if not result:
+        return result
+
+    raw_lines = [ln.strip() for ln in result.split("\n")]
+    normalized = []
+    for ln in raw_lines:
+        if not ln:
+            continue
+        # 원문에 남아있는 기호를 정해진 형식으로 강제 치환
+        if ln[0] in "◆■":
+            ln = "◇" + ln[1:]
+        elif ln[0] == "▲":
+            ln = "-" + ln[1:]
+        normalized.append(ln.strip())
+
+    # "파견"이 들어간 개별 항목(이름 줄)은 통째로 제거
+    filtered = [ln for ln in normalized if not (ln.startswith("-") and "파견" in ln)]
+
+    # 항목이 하나도 안 남은 "◇ 구분" 헤더는 같이 제거
+    final = []
+    i = 0
+    while i < len(filtered):
+        ln = filtered[i]
+        if ln.startswith("◇"):
+            j = i + 1
+            has_item = False
+            while j < len(filtered) and not filtered[j].startswith("◇"):
+                if filtered[j].startswith("-"):
+                    has_item = True
+                j += 1
+            if has_item:
+                final.append(ln)
+        else:
+            final.append(ln)
+        i += 1
+
+    return "\n".join(final).strip()
+
+# ==========================================
 # 4. 네이버 뉴스 API 검색 및 기사 본문 싹쓸이 + AI 요약
 # ==========================================
 def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_info):
@@ -198,6 +240,9 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
         이 내용 중에서 실제 인사 이동(승진/전보/임용 등 정식 발령)이나 부고 내역을 추출해서 아래 형식으로만 대답해줘.
 
         [주의: 파견 제외] "파견"(다른 기관으로 보내지거나 다른 기관에서 온 파견 근무)은 정식 인사 발령이 아니므로 결과에서 제외해. 승진/전보/임용/전출/전입처럼 해당 기관 소속으로 정식 발령난 내용만 채택해.
+        여러 명이 한 목록에 섞여 있어도 "파견"이라는 단어가 들어간 사람만 개별적으로 골라서 빼고, 나머지 정식 발령자는 그대로 남겨.
+
+        [주의: 인사 형식 강제] 원문 기사가 이미 ▲, ■, ◆ 같은 기호로 목록을 나열하고 있어도 그 기호를 그대로 베끼지 마. 반드시 아래 [출력 형식 예시 - 인사]에 나온 "◇"(구분)와 "-"(이름) 기호로만 다시 써야 해. 원문의 다른 기호는 전부 버려.
 
         [중요: 중복 제거 지시사항]
         아래는 최근에 이미 보고된 내역이야.
@@ -234,6 +279,10 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
         result = result.replace("※ 부고 기사의 경우 기사 원문에 있는 기호(▲, ■ 등)나 기자/언론사 이름(예: 연합뉴스)은 모두 제거해.", "")
         result = result.replace("※ 첫 줄에는 [우리 부처 관계자(소속 및 직책) 상명]을 적고, 두 번째 줄에는 [고인 이름 별세 = 빈소, 발인 일시]를 원문 느낌을 살려서 그대로 적어줘.", "")
         result = result.replace("※ 기사에 빈소 연락처(전화번호)가 나와 있으면 두 번째 줄 맨 끝에 이어서 적어줘. 연락처가 기사에 없으면 절대 지어내지 말고 적지 마.", "").strip()
+
+        # AI가 지시를 놓쳤을 때를 대비한 2차 안전장치 (인사 항목만 적용)
+        if keyword == "인사":
+            result = clean_personnel_format(result)
 
         time.sleep(1)
 
