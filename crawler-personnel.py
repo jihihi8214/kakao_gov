@@ -210,8 +210,12 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
                         except Exception:
                             pass
 
+                    fetched_full_body = bool(article_body)
                     if not article_body:
                         article_body = BeautifulSoup(item['description'], "html.parser").get_text()
+
+                    if keyword == "부고":
+                        print(f"\n   [디버그] 링크: {naver_link} / 본문전체fetch: {fetched_full_body} / 길이: {len(article_body)}자 / 기관명포함여부: {any(name in article_body for name in agency_names_to_check)}")
 
                     # 부고인데 제목에 기관명이 없었던 경우, 본문에도 기관명이 없으면
                     # 진짜 무관한 기사이므로 이 시점에 스킵
