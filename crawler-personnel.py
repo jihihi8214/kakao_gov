@@ -219,7 +219,11 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
                         if not any(name in article_body for name in agency_names_to_check):
                             continue
 
-                    snippets.append(f"[제목: {title}]\n내용: {article_body[:3000]}")
+                    # 부고 모음 기사는 여러 기관 사람이 쭉 나열돼서 길이가 김.
+                    # 3000자로 자르면 뒤쪽에 있는 기관 항목이 통째로 잘려나갈 수 있어
+                    # 부고는 훨씬 넉넉하게, 인사는 기존 그대로 자른다.
+                    body_limit = 12000 if keyword == "부고" else 3000
+                    snippets.append(f"[제목: {title}]\n내용: {article_body[:body_limit]}")
 
         if not snippets:
             print(" ➔ 관련 기사 없음 (패스 ⚡)")
