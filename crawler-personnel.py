@@ -312,6 +312,46 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
 
         time.sleep(1)
 
+        # 부고인데 1차 시도가 '해당 없음'으로 나왔지만, 원문에 기관명이 실제로
+        # 있었다면 노이즈(다른 기관 부고들)를 다 빼고 기관명 주변 문맥만 좁혀서
+        # 한 번 더 시도한다. 긴 모음 기사 안에서 통째로 놓치는 경우를 잡기 위함.
+        if keyword == "부고" and (not result or "해당 없음" in result):
+            if any(name in combined_text for name in agency_names_to_check):
+                context_windows = []
+                for name in agency_names_to_check:
+                    start_idx = 0
+                    while len(context_windows) < 3:
+                        idx = combined_text.find(name, start_idx)
+                        if idx == -1:
+                            break
+                        w_start = max(0, idx - 150)
+                        w_end = min(len(combined_text), idx + len(name) + 150)
+                        context_windows.append(combined_text[w_start:w_end])
+                        start_idx = idx + len(name)
+
+                narrow_text = "\n---\n".join(context_windows)
+                retry_prompt = f"""
+                아래는 부고 기사 중 '{agency}'라는 단어 주변만 잘라낸 짧은 문맥 조각들이야.
+                이 안에 '{agency}' 소속 인물 본인 또는 그 가족의 부고 내용이 있으면 아래 형식으로 정리해줘.
+                문맥이 잘려서 애매하더라도, '{agency}'와 관련된 상(喪) 내용이 조금이라도 보이면 있는 그대로 정리해.
+                정말 아무 관련이 없으면 '해당 없음'이라고만 대답해. (설명 추가 절대 금지)
+
+                [형식]
+                (관계자 이름)({agency} 소속 및 직책) OO상
+                (고인 이름) 씨 별세 = 빈소, 발인 일시. (연락처가 보이면 이어서, 없으면 생략)
+
+                문맥 조각:
+                {narrow_text}
+                """
+                try:
+                    retry_response = generate_with_fallback(retry_prompt)
+                    retry_result = retry_response.text.strip()
+                    if retry_result and "해당 없음" not in retry_result:
+                        print(" [디버그] 1차 시도 실패 -> 문맥 좁혀서 재시도 성공")
+                        result = retry_result
+                except Exception:
+                    pass
+
         if not result or "해당 없음" in result:
             return "해당 없음"
 
