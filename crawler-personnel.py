@@ -233,6 +233,34 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
             print(" ➔ 관련 기사 없음 (패스 ⚡)")
             return "해당 없음"
 
+        # 부고는 같은 통신사발(연합뉴스 등) 기사를 여러 매체가 그대로 재게재하는 경우가 많아
+        # snippets 안에 사실상 같은 내용이 수십 개씩 들어갈 수 있다. 이렇게 되면 Gemini가
+        # "이미 여러 번 나왔다 = 중복이다"로 착각해 통째로 '해당 없음' 처리하는 경우가 있어서,
+        # 공백을 제거한 앞부분을 지문으로 삼아 사실상 동일한 내용은 하나만 남긴다.
+        if keyword == "부고" and len(snippets) > 1:
+            seen_fingerprints = set()
+            deduped = []
+            for s in snippets:
+                body_part = s.split("내용: ", 1)[-1]
+                fingerprint = "".join(body_part.split())[:200]
+                if fingerprint in seen_fingerprints:
+                    continue
+                seen_fingerprints.add(fingerprint)
+                deduped.append(s)
+
+            # 완전히 똑같지 않아도(매체마다 앞부분을 조금씩 다르게 잘라서) 사실상 같은
+            # 통신사발 기사가 여러 개 남아있을 수 있다. 그런 경우 본문이 길수록 정보가
+            # 온전할 가능성이 높으므로, 길이 순으로 상위 6개만 남겨 Gemini가 너무 많은
+            # 반복 내용에 헷갈리지 않게 한다.
+            MAX_BUGO_SNIPPETS = 6
+            if len(deduped) > MAX_BUGO_SNIPPETS:
+                deduped.sort(key=len, reverse=True)
+                deduped = deduped[:MAX_BUGO_SNIPPETS]
+
+            if len(deduped) < len(snippets):
+                print(f" [디버그] 부고 기사 {len(snippets)}개 -> {len(deduped)}개로 정리")
+            snippets = deduped
+
         print(" ➔ 찐 기사 발견! (본문 확보 완료, AI 분석 중)")
         combined_text = "\n\n---\n\n".join(snippets)
 
