@@ -182,10 +182,18 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
 
             if start_date <= pub_date_obj <= end_date:
                 title = BeautifulSoup(item['title'], "html.parser").get_text()
-
-                # 단순 기준: 제목에 기관명과 키워드(인사/부고)가 함께 들어있는 기사만 채택
                 agency_names_to_check = agency.split('·') if '·' in agency else [agency]
-                matched = keyword in title and any(name in title for name in agency_names_to_check)
+
+                if keyword != "부고":
+                    # 인사: 제목에 기관명과 "인사"가 함께 들어있는 기사만 채택
+                    matched = keyword in title and any(name in title for name in agency_names_to_check)
+                    title_has_agency = True  # 아래 본문 매칭 분기를 타지 않도록
+                else:
+                    # 부고: 모음 기사(여러 기관 사람이 한 기사에 같이 실림)는 제목에
+                    # "부고"만 있고 기관명은 본문에만 있는 경우가 많아, 제목에 기관명이
+                    # 없어도 일단 "부고"만 있으면 채택 후보로 두고 본문에서 재확인한다.
+                    matched = keyword in title
+                    title_has_agency = any(name in title for name in agency_names_to_check)
 
                 if matched:
                     naver_link = item.get('link', '')
@@ -204,6 +212,12 @@ def fetch_naver_news_and_summarize(agency, keyword, start_date, end_date, prev_i
 
                     if not article_body:
                         article_body = BeautifulSoup(item['description'], "html.parser").get_text()
+
+                    # 부고인데 제목에 기관명이 없었던 경우, 본문에도 기관명이 없으면
+                    # 진짜 무관한 기사이므로 이 시점에 스킵
+                    if keyword == "부고" and not title_has_agency:
+                        if not any(name in article_body for name in agency_names_to_check):
+                            continue
 
                     snippets.append(f"[제목: {title}]\n내용: {article_body[:3000]}")
 
